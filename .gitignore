@@ -1,0 +1,25 @@
+# Environment files
+.env
+!.env.example
+
+# Python virtual environments
+.venv/
+venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Logs
+logs/
+
+# Output files
+*.xlsx
+*.csv
+
+# Sample PDFs
+*.pdf
+
+# Images generated during processing
+*.png
+*.jpg
