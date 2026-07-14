@@ -18,13 +18,14 @@ except ImportError:  # pragma: no cover - fallback for direct script execution
 
 
 PROMPT = (
-    "Extract handwritten student records from the provided image. "
-    "Return ONLY JSON. "
-    "Expected columns: "
-    "S.No, Student Name, Photo No, Class, Father Name, Mobile Number, DOB, Blood Group, Address. "
-    "Rules: do not explain, do not wrap markdown, keep spelling exactly as written, "
-    "if unreadable return empty string, never skip students. "
-    "Return a JSON array of objects where each object contains the exact column names above."
+    "You are a document understanding assistant. Analyze the provided page image and return ONLY JSON. "
+    "Automatically detect the document type (for example: School register, Admission register, Invoice, Receipt, Attendance sheet, ID list, Survey, Ledger, Medical form, or Unknown table). "
+    "Detect whether the page is handwritten, printed, or mixed. "
+    "Detect the total number of pages, the count of tables on the page, and the column headers for each table. "
+    "Do NOT assume any fixed columns — discover column headers from the document. Preserve column order exactly and preserve row order exactly. "
+    "Never merge rows or invent rows or values. Never translate or correct spelling. If handwriting cannot be read for a value, return the literal string \"UNKNOWN\" for that field (do not return an empty string). "
+    "Return JSON in the following structure (use dynamic keys for columns): {\"documentType\": \"\", \"handwritten\": true|false, \"pages\": 0, \"columns\": [\"col1\", \"col2\", ...], \"rows\": [ {<column>: <value>, ...}, ... ] }. "
+    "Rows must use the detected column names as keys. Return only the JSON object; do not add any explanatory text or markdown."
 )
 
 STRICT_PROMPT = "Return ONLY valid JSON. Do not explain. Do not use markdown."

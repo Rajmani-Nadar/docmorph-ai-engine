@@ -19,12 +19,22 @@ def write_excel(records: list[dict[str, str]], output_path: Path, logger: loggin
     """Write extracted records to an Excel workbook with formatting."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    frame = pd.DataFrame(records, columns=EXPECTED_COLUMNS)
+    # Determine headers dynamically from the first record when available
+    if records:
+        # Preserve column order from the record keys
+        first = records[0]
+        if isinstance(first, dict):
+            columns = list(first.keys())
+        else:
+            columns = EXPECTED_COLUMNS
+    else:
+        columns = EXPECTED_COLUMNS
+    frame = pd.DataFrame(records, columns=columns)
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "Student Records"
 
-    for column_index, column_name in enumerate(EXPECTED_COLUMNS, start=1):
+    for column_index, column_name in enumerate(columns, start=1):
         sheet.cell(row=1, column=column_index, value=column_name)
 
     for row_index, row in enumerate(frame.itertuples(index=False, name=None), start=2):
@@ -42,7 +52,7 @@ def write_excel(records: list[dict[str, str]], output_path: Path, logger: loggin
         for cell in row:
             cell.alignment = Alignment(wrap_text=True, vertical="top")
 
-    for column_index, _ in enumerate(EXPECTED_COLUMNS, start=1):
+    for column_index, _ in enumerate(columns, start=1):
         column_cells = [sheet.cell(row=row_num, column=column_index).value for row_num in range(1, sheet.max_row + 1)]
         max_length = max(len(str(cell or "")) for cell in column_cells)
         adjusted_width = min(max_length + 2, 50)

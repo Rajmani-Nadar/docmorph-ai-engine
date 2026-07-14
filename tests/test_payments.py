@@ -8,6 +8,7 @@ from auth.service import AuthService
 from core.settings import settings
 from database.models import Payment
 from services.payments import PaymentService
+from services.subscription import SubscriptionService
 
 
 def _create_user() -> User:

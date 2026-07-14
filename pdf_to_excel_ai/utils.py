@@ -85,6 +85,42 @@ def validate_json(text: str) -> Any:
 
 def parse_records(payload: Any) -> list[dict[str, str]]:
     """Normalize Gemini JSON into a list of student record dictionaries."""
+    # New structured format: { columns: [...], rows: [...] }
+    if isinstance(payload, dict) and isinstance(payload.get("columns"), list) and isinstance(payload.get("rows"), list):
+        columns = [str(c) for c in payload.get("columns", [])]
+        rows = payload.get("rows", [])
+        normalized_records: list[dict[str, str]] = []
+        for row in rows:
+            # Row may be a dict or a list. Support both.
+            normalized: dict[str, str] = {}
+            if isinstance(row, dict):
+                for col in columns:
+                    val = row.get(col, "")
+                    if val is None:
+                        normalized[col] = ""
+                    elif isinstance(val, str):
+                        normalized[col] = val.strip()
+                    else:
+                        normalized[col] = str(val).strip()
+            elif isinstance(row, (list, tuple)):
+                for idx, col in enumerate(columns):
+                    try:
+                        val = row[idx]
+                    except Exception:
+                        val = ""
+                    if val is None:
+                        normalized[col] = ""
+                    elif isinstance(val, str):
+                        normalized[col] = val.strip()
+                    else:
+                        normalized[col] = str(val).strip()
+            else:
+                # Unsupported row format; skip
+                continue
+            normalized_records.append(normalized)
+        return normalized_records
+
+    # Backwards compatible handling for legacy formats
     if isinstance(payload, dict):
         if isinstance(payload.get("records"), list):
             records = payload["records"]
@@ -97,11 +133,11 @@ def parse_records(payload: Any) -> list[dict[str, str]]:
     else:
         raise ValueError("Gemini response did not contain a JSON array or object.")
 
-    normalized_records: list[dict[str, str]] = []
+    normalized_records = []
     for item in records:
         if not isinstance(item, dict):
             continue
-        normalized: dict[str, str] = {}
+        normalized = {}
         for column in EXPECTED_COLUMNS:
             value = item.get(column, "")
             if value is None:
