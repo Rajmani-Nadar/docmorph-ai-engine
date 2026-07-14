@@ -14,6 +14,7 @@ from pdf_to_excel_ai.excel_writer import write_excel
 from pdf_to_excel_ai.gemini_client import call_gemini
 from pdf_to_excel_ai.pdf_processor import convert_pdf, image_to_png_bytes
 from repositories.job_repository import JobRepository
+from services.subscription import UsageService
 from storage.manager import storage_manager
 from app_utils.logging import get_logger
 
@@ -66,34 +67,60 @@ class ProcessingService:
             repository.save_upload(job_id=job_id, storage_path=str(file_path), content_type="application/pdf", size_bytes=file_path.stat().st_size)
             session.close()
 
-            job_manager.update(job_id, current_step="Converting PDF", progress=10.0)
+            job_manager.update(
+                job_id,
+                status="processing",
+                current_step="Upload Complete",
+                stage="upload_complete",
+                message="Upload completed",
+                progress=5.0,
+                estimated_remaining="Starting PDF conversion",
+            )
+            job_manager.update(job_id, current_step="Converting PDF", stage="converting_pdf", message="Converting PDF to images", progress=10.0)
             pages = convert_pdf(self.logger, pdf_path=file_path)
-            job_manager.update(job_id, total_pages=len(pages), current_step="Reading PDF", progress=15.0)
+            total_pages = len(pages)
+            job_manager.update(job_id, total_pages=total_pages, current_step="Reading PDF", stage="reading_page", message=f"Reading page 1 of {total_pages}", progress=15.0, estimated_remaining=f"{total_pages} pages remaining")
 
             all_records: list[dict[str, str]] = []
+            completed_pages = 0
+            failed_pages = 0
             for idx, page in enumerate(pages, start=1):
+                page_progress = 15.0 + (40.0 * idx / max(total_pages, 1))
                 job_manager.update(
                     job_id,
                     current_step=f"Reading Page {idx}",
+                    stage="reading_page",
+                    message=f"Reading page {idx} of {total_pages}",
                     current_page=idx,
-                    progress=15.0 + (70.0 * idx / max(len(pages), 1)),
-                    estimated_remaining=f"{max(len(pages) - idx, 0)} pages left",
+                    progress=page_progress,
+                    estimated_remaining=f"{max(total_pages - idx, 0)} pages remaining",
                 )
                 self.logger.info("Reading page %s...", idx)
                 image_bytes = image_to_png_bytes(page)
                 self.logger.info("Sending page to Gemini...")
                 page_records = call_gemini(image_bytes, self.logger, page_number=idx)
+                if page_records:
+                    completed_pages += 1
+                else:
+                    failed_pages += 1
                 all_records.extend(page_records)
+                job_manager.update(job_id, completed_pages=completed_pages, failed_pages=failed_pages)
 
+            job_manager.update(job_id, current_step="Running AI recognition", stage="ai_recognition", message="Running AI recognition", progress=60.0, estimated_remaining="Structuring extracted records")
+            job_manager.update(job_id, current_step="Structuring Data", stage="structuring_data", message="Structuring extracted records", progress=80.0)
             if not all_records:
                 self.logger.warning("No records extracted from the PDF.")
+                raise ValueError("OCR did not extract any records from the uploaded document.")
 
-            job_manager.update(job_id, current_step="Generating Excel", progress=90.0)
+            job_manager.update(job_id, current_step="Generating Excel", stage="generating_excel", message="Generating Excel workbook", progress=90.0)
             output_path = write_excel(all_records, RESULT_DIR / f"{job_id}.xlsx", self.logger)
+            job_manager.update(job_id, current_step="Saving Results", stage="saving_results", message="Saving results", progress=95.0)
             job_manager.update(
                 job_id,
                 status="completed",
                 current_step="Preparing Download",
+                stage="completed",
+                message="Extraction completed successfully",
                 progress=100.0,
                 output_path=output_path,
                 result_path=output_path,
@@ -106,23 +133,31 @@ class ProcessingService:
             repository.update_job(job_id, processing_status="completed", current_step="Preparing Download", progress=100.0, output_excel_path=str(output_path))
             for record in all_records:
                 repository.save_result(job_id=job_id, record=record)
+            if job_record and job_record.user_id:
+                try:
+                    UsageService(session).record_page_processing(job_record.user_id, page_count=total_pages)
+                except Exception:
+                    self.logger.exception("Failed to record page usage for job %s", job_id)
             repository.save_log(job_id=job_id, level="INFO", message="Processing completed")
             session.close()
             self.logger.info("Finished job %s", job_id)
         except Exception as exc:  # noqa: BLE001
             self.logger.exception("Pipeline failed for job %s: %s", job_id, exc)
+            current_job = job_manager.get(job_id)
             job_manager.update(
                 job_id,
                 status="failed",
                 current_step="Failed",
-                progress=100.0,
+                stage="failed",
+                message=str(exc) or "Processing failed",
+                progress=current_job.progress if current_job else 0.0,
                 error=str(exc),
                 estimated_remaining="Failed",
             )
             try:
                 session = SessionLocal()
                 repository = JobRepository(session)
-                repository.update_job(job_id, processing_status="failed", current_step="Failed", progress=100.0, error_message=str(exc))
+                repository.update_job(job_id, processing_status="failed", current_step="Failed", progress=current_job.progress if current_job else 0.0, error_message=str(exc))
                 repository.save_log(job_id=job_id, level="ERROR", message=str(exc))
                 session.close()
             except Exception:  # noqa: BLE001

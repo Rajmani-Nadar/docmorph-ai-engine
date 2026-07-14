@@ -24,7 +24,7 @@ def _default_database_url() -> str:
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=BASE_DIR / ".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(env_file=BASE_DIR / "pdf_to_excel_ai" / ".env", env_file_encoding="utf-8", extra="ignore")
 
     app_name: str = Field(default="DocMorph AI Engine")
     app_version: str = Field(default="1.1.0")
@@ -41,6 +41,8 @@ class Settings(BaseSettings):
     database_url: str = Field(default_factory=_default_database_url)
     model_name: str = Field(default="gemini-3.5-flash")
     poppler_path: str | None = Field(default=None)
+    razorpay_key_id: str = Field(default="")
+    razorpay_key_secret: str = Field(default="")
 
     def get_cors_origins(self) -> list[str]:
         return [origin.strip() for origin in self.cors_allowed_origins.split(",") if origin.strip()]

@@ -22,9 +22,13 @@ class UploadResponse(BaseModel):
 class StatusResponse(BaseModel):
     status: str
     progress: float
+    stage: str
+    message: str
     currentStep: str
     currentPage: int
     totalPages: int
+    completedPages: int
+    failedPages: int
     estimatedRemaining: str
     error: str | None = None
 
@@ -50,6 +54,7 @@ class DashboardResponse(BaseModel):
     average_processing_time: float
     total_downloads: int
     recent_activity: list[HistoryItemResponse]
+    monthly_usage: dict[str, int]
 
 
 class DeleteResponse(BaseModel):

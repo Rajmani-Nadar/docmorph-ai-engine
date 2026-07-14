@@ -16,8 +16,12 @@ class JobRecord:
     status: str = "queued"
     progress: float = 0.0
     current_step: str = "Queued"
+    stage: str = "upload_complete"
+    message: str = "Upload completed"
     current_page: int = 0
     total_pages: int = 0
+    completed_pages: int = 0
+    failed_pages: int = 0
     estimated_remaining: str = "Calculating"
     error: str | None = None
     records: list[dict[str, Any]] = field(default_factory=list)
@@ -29,10 +33,15 @@ class JobRecord:
         return {
             "status": self.status,
             "progress": round(self.progress, 2),
+            "stage": self.stage,
+            "message": self.message,
             "currentStep": self.current_step,
             "currentPage": self.current_page,
             "totalPages": self.total_pages,
+            "completedPages": self.completed_pages,
+            "failedPages": self.failed_pages,
             "estimatedRemaining": self.estimated_remaining,
+            "error": self.error,
         }
 
 

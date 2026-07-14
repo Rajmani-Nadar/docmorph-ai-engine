@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
-from database.models import Job, UploadedFile, ExtractionResult, ProcessingLog, Download
+from database.models import Job, MonthlyUsage, UploadedFile, ExtractionResult, ProcessingLog, Download
 
 
 class JobRepository:
@@ -59,7 +60,19 @@ class JobRepository:
             if job.upload_time and job.completed_time
         ]
         average_processing_time = round(sum(completed_durations) / len(completed_durations), 2) if completed_durations else 0
-        total_downloads = self.session.query(Download).filter(Download.job_id.in_([job.job_id for job in jobs])).count() if jobs else 0
+        monthly_usage = self.session.query(MonthlyUsage).filter(
+            MonthlyUsage.user_id == user_id,
+            MonthlyUsage.year == datetime.utcnow().year,
+            MonthlyUsage.month == datetime.utcnow().month,
+        ).first()
+        monthly_usage_payload = {
+            "uploads": monthly_usage.uploads_used if monthly_usage else 0,
+            "pages": monthly_usage.pages_processed if monthly_usage else 0,
+            "excelDownloads": monthly_usage.excel_downloads if monthly_usage else 0,
+            "csvDownloads": monthly_usage.csv_downloads if monthly_usage else 0,
+            "processingTimeSeconds": monthly_usage.processing_time_seconds if monthly_usage else 0,
+        }
+        total_downloads = (monthly_usage.excel_downloads + monthly_usage.csv_downloads) if monthly_usage else 0
         recent_activity = [
             {
                 "job_id": job.job_id,
@@ -78,6 +91,7 @@ class JobRepository:
             "average_processing_time": average_processing_time,
             "total_downloads": total_downloads,
             "recent_activity": recent_activity,
+            "monthly_usage": monthly_usage_payload,
         }
 
     def save_upload(self, *, job_id: str, storage_path: str, content_type: str | None, size_bytes: int) -> UploadedFile:

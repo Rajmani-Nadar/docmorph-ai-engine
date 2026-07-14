@@ -28,7 +28,15 @@ class AuthService:
         if self.session.query(User).filter(User.email == payload.email.lower()).first():
             raise ValueError("Email already registered")
         password_hash = self._hash_password(payload.password)
-        user = User(name=payload.name.strip(), email=payload.email.lower(), password_hash=password_hash, role=UserRole.USER.value)
+        user = User(
+            name=payload.name.strip(),
+            email=payload.email.lower(),
+            password_hash=password_hash,
+            role=UserRole.USER.value,
+            current_plan="FREE",
+            subscription_status="active",
+            billing_status="pending",
+        )
         self.session.add(user)
         self.session.commit()
         self.session.refresh(user)

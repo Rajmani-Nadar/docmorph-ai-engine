@@ -30,3 +30,7 @@ class User(Base):
     last_login: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     token_version: Mapped[int] = mapped_column(Integer, default=0)
+    current_plan: Mapped[str] = mapped_column(String(20), nullable=False, default="FREE")
+    subscription_status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
+    billing_status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    renewal_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

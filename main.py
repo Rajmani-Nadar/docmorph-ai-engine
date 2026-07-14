@@ -1,3 +1,4 @@
+# C:\Users\Vihasini\OneDrive\Desktop\handwritten-pdf-to-excel-ai\main.py
 from __future__ import annotations
 
 import os
@@ -5,7 +6,8 @@ import sys
 from pathlib import Path
 from time import time
 
-from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, UploadFile, status
+from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Request, UploadFile, status
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from sqlalchemy import text
@@ -27,6 +29,10 @@ from database.session import SessionLocal, engine
 from repositories.job_repository import JobRepository
 from schemas.job import DeleteResponse, DashboardResponse, HealthResponse, HistoryItemResponse, ResultResponse, StatusResponse, UploadResponse
 from services.processing import processing_service
+from services.payments import PaymentService
+from services.subscription import BillingService, PlanService, SubscriptionService, UsageService
+from auth.dependencies import get_db
+from sqlalchemy.orm import Session
 from storage.manager import storage_manager
 from app_utils.validation import validate_upload
 
@@ -55,9 +61,17 @@ async def startup_event() -> None:
             columns = [row[1] for row in result.fetchall()]
             if "token_version" not in columns:
                 conn.execute(text("ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0"))
+            for column_name in ("current_plan", "subscription_status", "billing_status", "renewal_date"):
+                if column_name not in columns:
+                    conn.execute(text(f"ALTER TABLE users ADD COLUMN {column_name} TEXT"))
     except Exception:
         pass
     processing_service.cleanup_old_files()
+    # Ensure seed plans using a managed DB session so it is closed afterwards
+    from database.session import SessionLocal
+
+    with SessionLocal() as session:
+        PlanService(session).ensure_seed_plans()
 
 
 @app.get("/", response_model=dict)
@@ -84,11 +98,19 @@ async def upload_file(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     current_user: dict[str, object] = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ) -> UploadResponse:
     if not file.filename:
         raise AppError("Filename is required", status_code=400, error_code="invalid_filename")
     content = await file.read()
     validate_upload(file.filename, content)
+
+    usage_service = UsageService(db)
+    quota_result = usage_service.enforce_upload_quota(int(current_user["id"]), size_bytes=len(content), pages=1)
+    if not quota_result["success"]:
+        raise AppError(quota_result["message"], status_code=402, error_code=quota_result["errorCode"], details={"recommendedPlan": quota_result.get("recommendedPlan")})
+
+    usage_service.record_upload(int(current_user["id"]), size_bytes=len(content))
     job_id, file_path = processing_service.create_upload_job_from_bytes(file.filename, content, user_id=int(current_user["id"]))
     processing_service.attach_job_user(job_id, int(current_user["id"]))
     background_tasks.add_task(processing_service.start_processing, job_id, file_path)
@@ -139,6 +161,10 @@ async def download_result(job_id: str, current_user: dict[str, object] = Depends
     output_path = processing_service.get_download_path(job_id)
     if not output_path or not output_path.exists():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Result not found")
+    with SessionLocal() as session:
+        repository = JobRepository(session)
+        repository.save_download(job_id=job_id, path=str(output_path))
+        UsageService(session).record_excel_download(int(current_user["id"]))
     return FileResponse(output_path, filename=output_path.name, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
@@ -176,6 +202,71 @@ async def delete_job(job_id: str, current_user: dict[str, object] = Depends(get_
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
     return DeleteResponse(success=True, message="Job cancelled")
+
+
+@app.get("/subscription")
+async def get_subscription(current_user: dict[str, object] = Depends(get_current_user), db: Session = Depends(get_db)) -> dict[str, object]:
+    service = SubscriptionService(db)
+    return service.get_subscription(int(current_user["id"]))
+
+
+@app.get("/usage")
+async def get_usage(current_user: dict[str, object] = Depends(get_current_user), db: Session = Depends(get_db)) -> dict[str, object]:
+    service = UsageService(db)
+    return service.get_usage_summary(int(current_user["id"]))
+
+
+@app.get("/plans")
+async def get_plans(db: Session = Depends(get_db)) -> dict[str, object]:
+    service = PlanService(db)
+    return {"plans": service.list_plans()}
+
+
+@app.post("/subscription/change")
+async def change_subscription(payload: dict[str, str], current_user: dict[str, object] = Depends(get_current_user), db: Session = Depends(get_db)) -> dict[str, object]:
+    service = SubscriptionService(db)
+    plan_code = payload.get("planCode") or payload.get("plan") or "FREE"
+    return service.change_plan(int(current_user["id"]), plan_code)
+
+
+@app.get("/billing/history")
+async def get_billing_history(current_user: dict[str, object] = Depends(get_current_user), db: Session = Depends(get_db)) -> dict[str, object]:
+    service = BillingService(db)
+    return {"events": service.get_billing_history(int(current_user["id"]))}
+
+
+@app.post("/payments/create-order")
+async def create_payment_order(payload: dict[str, object], current_user: dict[str, object] = Depends(get_current_user), db: Session = Depends(get_db)) -> dict[str, object]:
+    service = PaymentService(db)
+    return service.create_order(
+        user_id=int(current_user["id"]),
+        plan_code=str(payload.get("planCode") or payload.get("plan") or "PRO"),
+        amount=float(payload.get("amount") or 0),
+    )
+
+
+@app.post("/payments/verify")
+async def verify_payment(payload: dict[str, object], current_user: dict[str, object] = Depends(get_current_user), db: Session = Depends(get_db)) -> dict[str, object]:
+    service = PaymentService(db)
+    return service.verify_payment(user_id=int(current_user["id"]), payload=payload)
+
+
+@app.post("/payments/webhook")
+async def payment_webhook(request: Request, db: Session = Depends(get_db)) -> dict[str, object]:
+    service = PaymentService(db)
+    return await service.handle_webhook(request)
+
+
+@app.get("/payments/history")
+async def payment_history(current_user: dict[str, object] = Depends(get_current_user), db: Session = Depends(get_db)) -> dict[str, object]:
+    service = PaymentService(db)
+    return {"payments": service.get_history(int(current_user["id"]))}
+
+
+@app.get("/payments/invoice/{invoice_id}")
+async def payment_invoice(invoice_id: int, current_user: dict[str, object] = Depends(get_current_user), db: Session = Depends(get_db)) -> dict[str, object]:
+    service = PaymentService(db)
+    return service.get_invoice(invoice_id, user_id=int(current_user["id"]))
 
 
 if __name__ == "__main__":
