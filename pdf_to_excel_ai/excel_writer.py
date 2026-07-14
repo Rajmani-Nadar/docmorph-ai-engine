@@ -9,7 +9,10 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font
 from openpyxl.utils import get_column_letter
 
-from utils import EXPECTED_COLUMNS
+try:
+    from .utils import EXPECTED_COLUMNS
+except ImportError:  # pragma: no cover - fallback for direct script execution
+    from utils import EXPECTED_COLUMNS
 
 
 def write_excel(records: list[dict[str, str]], output_path: Path, logger: logging.Logger) -> Path:

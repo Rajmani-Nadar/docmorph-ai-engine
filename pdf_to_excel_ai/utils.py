@@ -6,7 +6,10 @@ import re
 from pathlib import Path
 from typing import Any
 
-from config import BASE_DIR
+try:
+    from .config import BASE_DIR
+except ImportError:  # pragma: no cover - fallback for direct script execution
+    from config import BASE_DIR
 
 EXPECTED_COLUMNS = [
     "S.No",

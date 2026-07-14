@@ -9,8 +9,12 @@ from typing import Any
 from google import genai
 from google.genai import types
 
-from config import GEMINI_API_KEY, MODEL_NAME
-from utils import LOG_DIR, EXPECTED_COLUMNS, parse_records, validate_json
+try:
+    from .config import GEMINI_API_KEY, MODEL_NAME
+    from .utils import LOG_DIR, EXPECTED_COLUMNS, parse_records, validate_json
+except ImportError:  # pragma: no cover - fallback for direct script execution
+    from config import GEMINI_API_KEY, MODEL_NAME
+    from utils import LOG_DIR, EXPECTED_COLUMNS, parse_records, validate_json
 
 
 PROMPT = (

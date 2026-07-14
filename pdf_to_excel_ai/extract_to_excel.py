@@ -5,11 +5,18 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from config import OUTPUT_EXCEL, PDF_FILE
-from excel_writer import write_excel
-from gemini_client import call_gemini
-from pdf_processor import convert_pdf, image_to_png_bytes
-from utils import setup_logging
+try:
+    from .config import OUTPUT_EXCEL, PDF_FILE
+    from .excel_writer import write_excel
+    from .gemini_client import call_gemini
+    from .pdf_processor import convert_pdf, image_to_png_bytes
+    from .utils import setup_logging
+except ImportError:  # pragma: no cover - fallback for direct script execution
+    from config import OUTPUT_EXCEL, PDF_FILE
+    from excel_writer import write_excel
+    from gemini_client import call_gemini
+    from pdf_processor import convert_pdf, image_to_png_bytes
+    from utils import setup_logging
 
 
 def main() -> None:
